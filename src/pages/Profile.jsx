@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 export default function Profile() {
+
     const [user, setUser] = useState(null);
     const [tasks, setTasks] = useState([]);
 
@@ -9,27 +10,28 @@ export default function Profile() {
 
     const [title, setTitle] = useState("");
     const [description, setDescription] = useState("");
-    const [dueDate, setDueDate] = useState("");
+    const [dueDate, setDueDate] = useState(""); // datetime-local
+    const [error, setError] = useState("");
 
     const token = localStorage.getItem("token");
 
     // ================= LOAD USER =================
     useEffect(() => {
         fetch("http://localhost:8080/api/user/me", {
-            headers: {
-                Authorization: `Bearer ${token}`,
-            },
+            headers: { Authorization: `Bearer ${token}` },
         })
-            .then((res) => res.json())
-            .then((data) => {
+            .then(res => res.json())
+            .then(data => {
                 setUser(data);
                 setTasks(data.tasks || []);
-            })
-            .catch((err) => console.log(err));
+            });
     }, []);
 
-    // ================= SAVE (ADD / EDIT) =================
+    // ================= SAVE =================
     const handleSave = async () => {
+
+        setError("");
+
         const url = editingTask
             ? `http://localhost:8080/api/tasks/${editingTask.id}`
             : "http://localhost:8080/api/tasks/add";
@@ -45,35 +47,43 @@ export default function Profile() {
             body: JSON.stringify({
                 title,
                 description,
-                dueDate: dueDate ? dueDate + "T00:00:00" : null,
+                dueDate: dueDate ? dueDate + ":00" : null, // 🔥 FIX ZA SECONDS
             }),
         });
 
-        if (res.ok) {
-            setTasks(await res.json());
+        const data = await res.json();
 
-            setShowModal(false);
-            setEditingTask(null);
-            setTitle("");
-            setDescription("");
-            setDueDate("");
+        if (!res.ok) {
+            setError(data.message || "Request failed");
+            return;
         }
+
+        setTasks(data);
+
+        setShowModal(false);
+        setEditingTask(null);
+        setTitle("");
+        setDescription("");
+        setDueDate("");
     };
 
     // ================= DELETE =================
     const handleDelete = async (id) => {
+
         const res = await fetch(`http://localhost:8080/api/tasks/${id}`, {
             method: "DELETE",
-            headers: {
-                Authorization: `Bearer ${token}`,
-            },
+            headers: { Authorization: `Bearer ${token}` },
         });
 
-        if (res.ok) setTasks(await res.json());
+        if (res.ok) {
+            const data = await res.json();
+            setTasks(data);
+        }
     };
 
-    // ================= COMPLETE TOGGLE =================
+    // ================= COMPLETE =================
     const handleComplete = async (id) => {
+
         const res = await fetch(`http://localhost:8080/api/tasks/${id}`, {
             method: "PATCH",
             headers: {
@@ -81,7 +91,10 @@ export default function Profile() {
             },
         });
 
-        if (res.ok) setTasks(await res.json());
+        if (!res.ok) return;
+
+        const data = await res.json();
+        setTasks(data);
     };
 
     // ================= EDIT =================
@@ -89,7 +102,11 @@ export default function Profile() {
         setEditingTask(task);
         setTitle(task.title || "");
         setDescription(task.description || "");
-        setDueDate(task.dueDate?.split("T")[0] || "");
+
+        // 🔥 FIX: backend ISO -> datetime-local format
+        setDueDate(task.dueDate ? task.dueDate.slice(0, 16) : "");
+
+        setError("");
         setShowModal(true);
     };
 
@@ -101,13 +118,9 @@ export default function Profile() {
                 {user ? (
                     <>
                         <p style={styles.email}>{user.email}</p>
-                        <h2 style={styles.name}>
-                            {user.firstName} {user.lastName}
-                        </h2>
+                        <h2>{user.firstName} {user.lastName}</h2>
                     </>
-                ) : (
-                    <p>Loading...</p>
-                )}
+                ) : <p>Loading...</p>}
 
                 <button
                     style={styles.addBtn}
@@ -116,6 +129,7 @@ export default function Profile() {
                         setTitle("");
                         setDescription("");
                         setDueDate("");
+                        setError("");
                         setShowModal(true);
                     }}
                 >
@@ -130,47 +144,63 @@ export default function Profile() {
                 {tasks.length === 0 ? (
                     <p style={{ opacity: 0.5 }}>No tasks yet...</p>
                 ) : (
-                    tasks.map((t) => (
-                        <div key={t.id} style={styles.card}>
+                    tasks.map(t => (
+                        <div
+                            key={t.id}
+                            style={{
+                                ...styles.card,
+                                background: t.completed
+                                    ? "rgba(76,175,80,0.22)"
+                                    : "rgba(255,255,255,0.12)",
+                                transition: "all 0.25s ease",
+                                transform: t.completed ? "scale(1.01)" : "scale(1)",
+                            }}
+                        >
 
-                            {/* LEFT SIDE TASK INFO */}
                             <div style={{ flex: 1 }}>
-                                <h3 style={{ margin: 0 }}>{t.title}</h3>
-                                <p style={{ margin: "5px 0", opacity: 0.8 }}>
+                                <h3 style={{
+                                    margin: 0,
+                                    textDecoration: t.completed ? "line-through" : "none",
+                                    opacity: t.completed ? 0.6 : 1
+                                }}>
+                                    {t.title}
+                                </h3>
+
+                                <p style={{ margin: "5px 0" }}>
                                     {t.description}
                                 </p>
-                                <small style={{ opacity: 0.6 }}>
+
+                                <small style={{ opacity: 0.7 }}>
                                     Due: {t.dueDate}
                                 </small>
                             </div>
 
-                            {/* ACTIONS */}
                             <div style={styles.actions}>
 
-                                <div style={{ position: "relative", zIndex: 10 }}>
-                                    <div
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            console.log("TOGGLE CLICK:", t.id);
-                                            handleComplete(t.id);
-                                        }}
-                                        title={t.completed ? "Mark as undone" : "Mark as complete"}
-                                        style={{
-                                            ...styles.toggle,
-                                            background: t.completed ? "#4caf50" : "#444",
-                                            justifyContent: t.completed ? "flex-end" : "flex-start",
-                                            cursor: "pointer",
-                                            userSelect: "none",
-                                            position: "relative",
-                                            zIndex: 20,
-                                        }}
-                                    >
-                                        <div style={styles.toggleCircle} />
-                                    </div>
-                                </div>
+                                <button
+                                    style={{
+                                        ...styles.completeBtn,
+                                        background: t.completed ? "#4caf50" : "#555",
+                                    }}
+                                    onClick={() => handleComplete(t.id)}
+                                >
+                                    ✓
+                                </button>
 
-                                <span onClick={() => openEdit(t)} style={{ cursor: "pointer" }}>✏️</span>
-                                <span onClick={() => handleDelete(t.id)} style={{ cursor: "pointer" }}>❌</span>
+                                <button
+                                    style={styles.editBtn}
+                                    onClick={() => openEdit(t)}
+                                >
+                                    ✎
+                                </button>
+
+                                <button
+                                    style={styles.deleteBtn}
+                                    onClick={() => handleDelete(t.id)}
+                                >
+                                    🗑
+                                </button>
+
                             </div>
 
                         </div>
@@ -182,42 +212,51 @@ export default function Profile() {
             {showModal && (
                 <div style={styles.modal}>
                     <div style={styles.modalBox}>
-                        <h2 style={{ marginBottom: "10px" }}>
-                            {editingTask ? "Edit Task" : "Add Task"}
-                        </h2>
+
+                        <h2>{editingTask ? "Edit Task" : "Add Task"}</h2>
+
+                        {error && (
+                            <div style={styles.errorBox}>
+                                {error}
+                            </div>
+                        )}
 
                         <input
                             style={styles.input}
                             placeholder="Title"
                             value={title}
-                            onChange={(e) => setTitle(e.target.value)}
+                            onChange={e => setTitle(e.target.value)}
                         />
 
                         <input
                             style={styles.input}
                             placeholder="Description"
                             value={description}
-                            onChange={(e) => setDescription(e.target.value)}
+                            onChange={e => setDescription(e.target.value)}
                         />
 
+                        {/* 🔥 DATETIME INPUT */}
                         <input
+                            type="datetime-local"
                             style={styles.input}
-                            type="date"
                             value={dueDate}
-                            onChange={(e) => setDueDate(e.target.value)}
+                            onChange={e => setDueDate(e.target.value)}
                         />
 
                         <button style={styles.primaryBtn} onClick={handleSave}>
                             {editingTask ? "Save Changes" : "Add Task"}
                         </button>
 
-                        <button style={styles.secondaryBtn} onClick={() => setShowModal(false)}>
+                        <button
+                            style={styles.secondaryBtn}
+                            onClick={() => setShowModal(false)}
+                        >
                             Cancel
                         </button>
+
                     </div>
                 </div>
             )}
-
         </div>
     );
 }
@@ -225,6 +264,7 @@ export default function Profile() {
 /* ================= STYLES ================= */
 
 const styles = {
+
     container: {
         display: "flex",
         height: "100vh",
@@ -246,7 +286,6 @@ const styles = {
     },
 
     email: { opacity: 0.7 },
-    name: { fontSize: "1.8rem" },
 
     addBtn: {
         marginTop: "20px",
@@ -256,44 +295,50 @@ const styles = {
         background: "white",
         color: "#203a43",
         fontSize: "2rem",
-        cursor: "pointer",
         border: "none",
+        cursor: "pointer",
     },
 
     card: {
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
+        position: "relative",
         padding: "20px",
         marginBottom: "15px",
-        background: "rgba(255,255,255,0.12)",
         borderRadius: "15px",
-        minHeight: "120px",
     },
 
     actions: {
+        position: "absolute",
+        top: "10px",
+        right: "10px",
         display: "flex",
-        flexDirection: "column",
-        gap: "10px",
-        alignItems: "center",
+        gap: "8px",
     },
 
-    toggle: {
-        width: "45px",
-        height: "22px",
-        borderRadius: "50px",
-        display: "flex",
-        alignItems: "center",
-        padding: "2px",
+    completeBtn: {
+        border: "none",
+        borderRadius: "8px",
+        padding: "6px 10px",
         cursor: "pointer",
-        transition: "0.3s",
+        color: "white",
+        fontWeight: "bold",
     },
 
-    toggleCircle: {
-        width: "18px",
-        height: "18px",
-        background: "white",
-        borderRadius: "50%",
+    editBtn: {
+        border: "none",
+        borderRadius: "8px",
+        padding: "6px 10px",
+        background: "#2196f3",
+        color: "white",
+        cursor: "pointer",
+    },
+
+    deleteBtn: {
+        border: "none",
+        borderRadius: "8px",
+        padding: "6px 10px",
+        background: "#f44336",
+        color: "white",
+        cursor: "pointer",
     },
 
     modal: {
@@ -316,6 +361,13 @@ const styles = {
         flexDirection: "column",
         gap: "12px",
         width: "350px",
+    },
+
+    errorBox: {
+        background: "#ff5252",
+        padding: "10px",
+        borderRadius: "8px",
+        fontWeight: "bold",
     },
 
     input: {
@@ -341,7 +393,7 @@ const styles = {
         padding: "10px",
         borderRadius: "8px",
         border: "none",
-        background: "rgba(255,255,255,0.1)",
+        background: "rgba(255,255,255,0.2)",
         color: "white",
         cursor: "pointer",
     },
